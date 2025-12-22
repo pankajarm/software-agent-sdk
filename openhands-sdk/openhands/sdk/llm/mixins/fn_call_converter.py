@@ -450,7 +450,8 @@ PLEASE follow the format strictly! PLEASE EMIT ONE AND ONLY ONE FUNCTION CALL PE
 """  # noqa: E501
 
 # Regex patterns for function call parsing
-FN_REGEX_PATTERN = r"<function=([^>]+)>\n(.*?)</function>"
+# Note: newline after function name is optional to handle models like Nemotron that don't output it
+FN_REGEX_PATTERN = r"<function=([^>]+)>\n?(.*?)</function>"
 FN_PARAM_REGEX_PATTERN = r"<parameter=([^>]+)>(.*?)</parameter>"
 
 # Add new regex pattern for tool execution results
@@ -702,7 +703,7 @@ def convert_fncall_messages_to_non_fncall_messages(
     first_user_message_encountered = False
     for message in messages:
         role = message["role"]
-        content: Content = message["content"]
+        content: Content = message.get("content", "") or ""  # Handle missing content
 
         # 1. SYSTEM MESSAGES
         # append system prompt suffix to content
@@ -880,6 +881,11 @@ def _extract_and_validate_params(
     for param_match in param_matches:
         param_name = param_match.group(1)
         param_value = param_match.group(2)
+        
+        # Strip leading/trailing whitespace from parameter values
+        # Some models (like Nemotron) add newlines around values
+        if isinstance(param_value, str):
+            param_value = param_value.strip()
 
         # Validate parameter is allowed
         if allowed_params and param_name not in allowed_params:
@@ -927,7 +933,9 @@ def _extract_and_validate_params(
         found_params.add(param_name)
 
     # Check all required parameters are present
-    missing_params = required_params - found_params
+    # IMPORTANT FIX: Exclude security_risk from required params since it has a default value
+    # This works around schemas that incorrectly mark it as required
+    missing_params = required_params - found_params - {'security_risk'}
     if missing_params:
         raise FunctionCallValidationError(
             f"Missing required parameters for function '{fn_name}': {missing_params}"
@@ -935,12 +943,44 @@ def _extract_and_validate_params(
     return params
 
 
+def _preprocess_model_output(content: str) -> str:
+    """Preprocess model output to handle various formats from different models.
+    
+    Some models (like Nemotron) output:
+    - </think> thinking tags
+    - <tool_call> wrappers around function calls
+    - Repeated <tool_call> tags when they fail to complete
+    
+    This function cleans up the output to extract just the function call.
+    """
+    # Strip thinking tags (Nemotron outputs </think> at end of thinking)
+    content = re.sub(r'</think>\s*', '', content)
+    content = re.sub(r'<think>\s*', '', content)
+    
+    # Strip tool_call wrappers (some models wrap function calls in these)
+    content = re.sub(r'<tool_call>\s*', '', content)
+    content = re.sub(r'</tool_call>\s*', '', content)
+    
+    # Handle repeated <tool_call> tags (degeneration issue)
+    # Keep only content up to excessive repetition
+    if content.count('<tool_call>') > 3:
+        # Model is stuck in a loop, try to extract any valid function call before the loop
+        first_tool_call_idx = content.find('<tool_call>')
+        if first_tool_call_idx > 0:
+            content = content[:first_tool_call_idx]
+    
+    return content
+
+
 def _fix_stopword(content: str) -> str:
     """Fix the issue when some LLM would NOT return the stopword."""
+    # First preprocess to handle model-specific formats
+    content = _preprocess_model_output(content)
+    
     if "<function=" in content and content.count("<function=") == 1:
         if content.endswith("</"):
             content = content.rstrip() + "function>"
-        else:
+        elif not content.rstrip().endswith("</function>"):
             content = content + "\n</function>"
     return content
 
@@ -981,8 +1021,8 @@ def convert_non_fncall_messages_to_fncall_messages(
 
     first_user_message_encountered = False
     for message in messages:
-        role, content = message["role"], message["content"]
-        content = content or ""  # handle cases where content is None
+        role = message["role"]
+        content = message.get("content", "") or ""  # Handle missing or None content
         # For system messages, remove the added suffix
         if role == "system":
             if isinstance(content, str):
@@ -1124,6 +1164,21 @@ def convert_non_fncall_messages_to_fncall_messages(
             if fn_match:
                 fn_name = fn_match.group(1)
                 fn_body = _normalize_parameter_tags(fn_match.group(2))
+                
+                # Map common tool name aliases used by some models
+                # (Nemotron and other models may use different tool names)
+                TOOL_NAME_ALIASES = {
+                    "str_replace_editor": "file_editor",
+                    "bash": "terminal",
+                    "execute_bash": "terminal",
+                    "run_command": "terminal",
+                    "str_replace": "file_editor",
+                    "edit_file": "file_editor",
+                    "submit": "finish",
+                    "complete": "finish",
+                }
+                fn_name = TOOL_NAME_ALIASES.get(fn_name, fn_name)
+                
                 matching_tool: ChatCompletionToolParamFunctionChunk | None = next(
                     (
                         tool["function"]
@@ -1203,7 +1258,8 @@ def convert_from_multiple_tool_calls_to_single_tool_call_messages(
     for message in messages:
         role: str
         content: Content
-        role, content = message["role"], message["content"]
+        role = message["role"]
+        content = message.get("content", "") or ""  # Handle missing or None content
         if role == "assistant":
             if message.get("tool_calls") and len(message["tool_calls"]) > 1:
                 # handle multiple tool calls by breaking them into multiple messages

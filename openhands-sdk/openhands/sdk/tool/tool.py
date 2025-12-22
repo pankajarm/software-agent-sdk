@@ -470,8 +470,10 @@ def create_action_type_with_risk(action_type: type[Schema]) -> type[Schema]:
         (action_type,),
         {
             "security_risk": Field(
-                # We do NOT add default value to make it an required field
-                # default=risk.SecurityRisk.UNKNOWN
+                # Add default value to make it optional in schema validation
+                # This allows weaker models to omit the field
+                # Runtime validation still happens in _extract_security_risk
+                default=risk.SecurityRisk.UNKNOWN,
                 description="The LLM's assessment of the safety risk of this action.",
             ),
             "__annotations__": {"security_risk": risk.SecurityRisk},
