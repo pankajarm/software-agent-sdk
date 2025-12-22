@@ -1,0 +1,30 @@
+IMPORTANT TOOL USAGE INSTRUCTIONS FOR THIS SESSION:
+
+You have access to ONLY the following tools. Use the EXACT names shown below:
+
+1. **terminal** - Execute shell commands (bash)
+   - Use for: running commands, grep, find, ls, cat, python, pip, git, etc.
+   - DO NOT use: "execute", "bash", "run", "shell", "execute_code"
+   - Example: <function=terminal><parameter=command>ls -la</parameter></function>
+
+2. **file_editor** - View and edit files
+   - Use for: viewing file contents, creating files, editing files
+   - Commands: "view", "create", "str_replace"
+   - DO NOT use: "explore", "explore_repo", "explorer", "view", "cat", "read_file"
+   - Example: <function=file_editor><parameter=command>view</parameter><parameter=path>/path/to/file.py</parameter></function>
+
+3. **think** - Think through a problem step by step
+   - Use for: reasoning about complex problems
+   - Example: <function=think><parameter=thought>Let me analyze this...</parameter></function>
+
+4. **finish** - Complete the task
+   - Use when: the task is complete
+   - Example: <function=finish><parameter=message>Task completed successfully.</parameter></function>
+
+CRITICAL REMINDERS:
+- To run ANY command (grep, find, ls, python, etc.): Use "terminal", NOT "execute"
+- To view file contents: Use "file_editor" with command="view", NOT "explore"
+- Always use the EXACT tool names: terminal, file_editor, think, finish
+- Function call format: <function=TOOL_NAME><parameter=PARAM_NAME>value</parameter></function>
+
+

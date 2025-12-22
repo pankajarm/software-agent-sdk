@@ -881,7 +881,7 @@ def _extract_and_validate_params(
     for param_match in param_matches:
         param_name = param_match.group(1)
         param_value = param_match.group(2)
-        
+
         # Strip leading/trailing whitespace from parameter values
         # Some models (like Nemotron) add newlines around values
         if isinstance(param_value, str):
@@ -950,6 +950,7 @@ def _preprocess_model_output(content: str) -> str:
     - </think> thinking tags
     - <tool_call> wrappers around function calls
     - Repeated <tool_call> tags when they fail to complete
+    - Malformed function names like "str_replace</parameter" (truncated output)
     
     This function cleans up the output to extract just the function call.
     """
@@ -968,6 +969,30 @@ def _preprocess_model_output(content: str) -> str:
         first_tool_call_idx = content.find('<tool_call>')
         if first_tool_call_idx > 0:
             content = content[:first_tool_call_idx]
+    
+    # Fix malformed function calls where the function name contains partial tags
+    # e.g., <function=str_replace</parameter becomes <function=str_replace>
+    # This happens when the model output gets truncated mid-stream
+    content = re.sub(
+        r'<function=([a-zA-Z_][a-zA-Z0-9_]*)</parameter[^>]*>',
+        r'<function=\1>',
+        content
+    )
+    
+    # Also fix cases like <function=str_replace\n</parameter
+    content = re.sub(
+        r'<function=([a-zA-Z_][a-zA-Z0-9_]*)\s*</parameter',
+        r'<function=\1>\n</function',
+        content
+    )
+    
+    # Fix malformed function names that contain garbage after valid name
+    # e.g., <function=explore_repo> should work, but <function=explore_repo</parameter=path> needs fixing
+    content = re.sub(
+        r'<function=([a-zA-Z_][a-zA-Z0-9_]*)</parameter=([^>]*)>',
+        r'<function=\1>\n<parameter=\2>',
+        content
+    )
     
     return content
 
@@ -1168,14 +1193,34 @@ def convert_non_fncall_messages_to_fncall_messages(
                 # Map common tool name aliases used by some models
                 # (Nemotron and other models may use different tool names)
                 TOOL_NAME_ALIASES = {
+                    # File editor aliases
                     "str_replace_editor": "file_editor",
-                    "bash": "terminal",
-                    "execute_bash": "terminal",
-                    "run_command": "terminal",
                     "str_replace": "file_editor",
                     "edit_file": "file_editor",
+                    "explore": "file_editor",       # Nemotron uses this for viewing files
+                    "explore_repo": "file_editor",  # Nemotron variant
+                    "explorer": "file_editor",      # Nemotron variant
+                    "explore_github": "file_editor", # Nemotron variant
+                    "view": "file_editor",          # Nemotron uses this for viewing files
+                    "cat": "file_editor",           # Some models use cat for viewing
+                    "read_file": "file_editor",     # Common alternative
+                    
+                    # Terminal aliases
+                    "bash": "terminal",
+                    "execute_bash": "terminal",
+                    "execute": "terminal",          # Nemotron uses this frequently
+                    "execute_code": "terminal",     # Nemotron variant
+                    "run_command": "terminal",
+                    "run": "terminal",
+                    "shell": "terminal",
+                    "grep": "terminal",             # Should run grep via terminal
+                    "find": "terminal",             # Should run find via terminal
+                    "ls": "terminal",               # Should run ls via terminal
+                    
+                    # Finish aliases
                     "submit": "finish",
                     "complete": "finish",
+                    "done": "finish",
                 }
                 fn_name = TOOL_NAME_ALIASES.get(fn_name, fn_name)
                 

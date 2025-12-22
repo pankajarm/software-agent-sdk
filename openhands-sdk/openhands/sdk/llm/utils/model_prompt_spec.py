@@ -28,9 +28,10 @@ _MODEL_FAMILY_PATTERNS: dict[str, tuple[str, ...]] = {
     "anthropic_claude": ("claude",),
     "google_gemini": ("gemini",),
     "meta_llama": ("llama",),
-    "mistral": ("mistral",),
+    "mistral": ("mistral", "devstral",),
     "deepseek": ("deepseek",),
     "alibaba_qwen": ("qwen",),
+    "nemotron": ("nemotron",),  # NVIDIA Nemotron models
 }
 
 # Ordered heuristics to pick the most specific variant available for a family.
